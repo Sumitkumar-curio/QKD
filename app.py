@@ -1,36 +1,39 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.fft import fft, fftfreq
+from scipy.fft import fft, fftfreq, fftshift
 from scipy.signal import hilbert
 
-# Helper functions from your scripts
+# Helper functions
 
 def freq_offset_compensation_block_ssb(tx_pilot_signal, demod_pilot_signal, Fs):
     """
-    Frequency Offset Estimation and Correction
+    Frequency Offset Estimation and Correction based on test_cfo_pn_pilot.py
     """
-    Tx_fft = np.fft.fftshift(np.fft.fft(tx_pilot_signal))
-    N_fft = len(tx_pilot_signal)
-    f_fft = np.linspace(-Fs/2, Fs/2 - Fs/N_fft, N_fft)
-    max_idx = np.argmax(np.abs(Tx_fft))
-    Tx_max_freq = f_fft[max_idx]
+    # Find the frequency of the peak in the transmitted pilot's FFT
+    Tx_fft = fftshift(fft(tx_pilot_signal))
+    N_fft_tx = len(tx_pilot_signal)
+    f_fft_tx = np.linspace(-Fs/2, Fs/2 - Fs/N_fft_tx, N_fft_tx)
+    max_idx_tx = np.argmax(np.abs(Tx_fft))
+    Tx_max_freq = f_fft_tx[max_idx_tx]
 
-    pilot_fft = np.fft.fftshift(np.fft.fft(demod_pilot_signal))
-    N_fft = len(demod_pilot_signal)
-    f_fft = np.linspace(-Fs/2, Fs/2 - Fs/N_fft, N_fft)
-    max_idx = np.argmax(np.abs(pilot_fft))
-    Rx_max_freq = f_fft[max_idx]
-    Freq_offset = Tx_max_freq - Rx_max_freq
+    # Find the frequency of the peak in the demodulated pilot's FFT
+    pilot_fft = fftshift(fft(demod_pilot_signal))
+    N_fft_demod = len(demod_pilot_signal)
+    f_fft_demod = np.linspace(-Fs/2, Fs/2 - Fs/N_fft_demod, N_fft_demod)
+    max_idx_demod = np.argmax(np.abs(pilot_fft))
+    Rx_max_freq = f_fft_demod[max_idx_demod]
 
+    # Calculate the frequency offset
+    Freq_offset =   Tx_max_freq - Rx_max_freq
+
+    # Apply the correction
     L = len(demod_pilot_signal)
-    FO_estimate_Hz = Freq_offset
-    Ts = 1 / Fs
-    t = np.arange(0, L) * Ts
+    t = np.arange(L) / Fs
 
-    FO_compensated = demod_pilot_signal * np.exp(1j * 2 * np.pi * FO_estimate_Hz * t)
+    FO_compensated = demod_pilot_signal * np.exp(1j * 2 * np.pi * Freq_offset * t)
+    
     return FO_compensated, Freq_offset
 
 def plot_fft(data_i, data_q, Fs):
@@ -78,15 +81,18 @@ def plot_combined_fft(data_i, data_q, Fs):
     min_len = min(len(data_i), len(data_q))
     data_i = data_i[:min_len]
     data_q = data_q[:min_len]
-    complex_signal = data_i + 1j * data_q
+
+    data_i_dc_removed = data_i - 0*np.mean(data_i)
+    data_q_dc_removed = data_q - 0*np.mean(data_q)
+    complex_signal = data_i_dc_removed + 1j * data_q_dc_removed
 
     N = len(complex_signal)
-    yf = fft(complex_signal)
-    xf = fftfreq(N, 1 / Fs)
+    yf_shifted = fftshift(fft(complex_signal))
+    xf_shifted = fftshift(fftfreq(N, 1 / Fs))
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(xf, np.abs(yf))
-    ax.set_title('Magnitude Spectrum of Combined I + jQ Signal')
+    ax.plot(xf_shifted, np.abs(yf_shifted))
+    ax.set_title('Magnitude Spectrum of Combined I + jQ Signal (DC Removed)')
     ax.set_xlabel('Frequency (Hz)')
     ax.set_ylabel('Magnitude')
     ax.grid(True)
@@ -97,19 +103,18 @@ def plot_scatter(data_i, data_q):
     """
     Plots a scatter plot of the I and Q data.
     """
-    demod_pilot_current = data_i + 1j * data_q
+    data_i_centered = data_i - 0*np.mean(data_i)
+    data_q_centered = data_q - 0*np.mean(data_q)
+    demod_pilot_current = data_i_centered + 1j * data_q_centered
+    
     fig, ax = plt.subplots(figsize=(8, 8))
-    ax.scatter(np.real(demod_pilot_current), np.imag(demod_pilot_current), alpha=0.7, s=5)
-    ax.set_xlabel('Real Part')
-    ax.set_ylabel('Imaginary Part')
-    ax.set_title('Demodulated Pilot Current')
+    ax.scatter(np.real(demod_pilot_current), np.imag(demod_pilot_current), alpha=0.5)
+    ax.set_xlabel('Real Part (I)')
+    ax.set_ylabel('Imaginary Part (Q)')
+    ax.set_title('Centered Scatter Plot of I and Q')
     ax.grid(True)
-    ax.spines['left'].set_position('center')
-    ax.spines['bottom'].set_position('center')
-    ax.spines['right'].set_color('none')
-    ax.spines['top'].set_color('none')
-    ax.xaxis.set_ticks_position('bottom')
-    ax.yaxis.set_ticks_position('left')
+    ax.set_xlim(-5, 5)
+    ax.set_ylim(-5, 5)
     ax.set_aspect('equal', adjustable='box')
     st.pyplot(fig)
 
@@ -117,85 +122,77 @@ def plot_freq_offset_compensation(data_i, data_q, Fs, pilot_freq):
     """
     Performs frequency offset compensation and plots the results.
     """
-    demod_pilot_current = data_i + 1j * data_q
+    # Step 1: Remove DC offset from experimental data
+    data_i_centered = data_i - 0*np.mean(data_i)
+    data_q_centered = data_q - 0*np.mean(data_q)
+    demod_pilot_current = data_i_centered + 1j * data_q_centered
 
-    Duration = len(demod_pilot_current) / Fs
-    Resolution_Time = 1 / Fs
-    t = np.arange(0, Duration, Resolution_Time)
+    # Step 2: Generate an ideal reference pilot signal
+    num_samples = len(demod_pilot_current)
+    num_samples_per_pulse = Fs / pilot_freq
+    resolution_time = 1 / Fs
+    t = np.arange(0, resolution_time*num_samples, resolution_time).reshape(-1, 1)
 
-    if len(t) > len(demod_pilot_current):
-        t = t[:len(demod_pilot_current)]
-    elif len(t) < len(demod_pilot_current):
-        t = np.arange(0, len(demod_pilot_current)) * Resolution_Time
-
-    I_signal = np.cos(2 * np.pi * pilot_freq * t)
-    Q_signal = np.imag(hilbert(I_signal))
+    # --- Baseband I/Q Signal Generation ---
+    i_signal = np.cos(2 * np.pi * pilot_freq * t)
+    q_signal = np.imag(hilbert(i_signal, axis=0))
     phase_shift = np.pi / 2
-    tx_pilot_signal = I_signal + np.exp(1j * phase_shift) * Q_signal
+    tx_pilot_signal = (i_signal + np.exp(1j * phase_shift) * q_signal).flatten()
 
-    if len(tx_pilot_signal) != len(demod_pilot_current):
-        min_len_signals = min(len(tx_pilot_signal), len(demod_pilot_current))
-        tx_pilot_signal = tx_pilot_signal[:min_len_signals]
-        demod_pilot_current = demod_pilot_current[:min_len_signals]
+    # Step 3: Perform Frequency Offset Compensation
+    compensated_signal, offset_estimated = freq_offset_compensation_block_ssb(tx_pilot_signal, demod_pilot_current, Fs)
 
-    Freq_Offset_comp_pilot_current, Freq_offset_estimated = freq_offset_compensation_block_ssb(tx_pilot_signal, demod_pilot_current, Fs)
+    st.write(f"Estimated Frequency Offset: {offset_estimated:.2f} Hz")
 
-    st.write(f"Estimated Frequency Offset: {Freq_offset_estimated:.2f} Hz")
-
-    fig1, ax1 = plt.subplots(figsize=(8, 6))
-    ax1.scatter(np.real(demod_pilot_current), np.imag(demod_pilot_current), alpha=0.7, s=5)
-    ax1.set_xlabel('Real Part')
-    ax1.set_ylabel('Imaginary Part')
-    ax1.set_title('Before Frequency Offset Compensation')
-    ax1.grid(True)
-    ax1.axhline(0, color='gray', linewidth=0.5)
-    ax1.axvline(0, color='gray', linewidth=0.5)
-    ax1.axis('equal')
-    st.pyplot(fig1)
-
-    fig2, ax2 = plt.subplots(figsize=(8, 6))
-    ax2.scatter(np.real(Freq_Offset_comp_pilot_current), np.imag(Freq_Offset_comp_pilot_current), alpha=0.7, s=5)
-    ax2.set_xlabel('Real Part')
-    ax2.set_ylabel('Imaginary Part')
-    ax2.set_title('After Frequency Offset Compensation')
-    ax2.grid(True)
-    ax2.axhline(0, color='gray', linewidth=0.5)
-    ax2.axvline(0, color='gray', linewidth=0.5)
-    ax2.axis('equal')
-    st.pyplot(fig2)
+    # Step 4: Plot the corrected signal
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.scatter(np.real(compensated_signal), np.imag(compensated_signal), alpha=0.5, s=5)
+    ax.set_xlabel('Real Part (I)')
+    ax.set_ylabel('Imaginary Part (Q)')
+    ax.set_title('After Frequency Offset Compensation')
+    ax.grid(True)
+    ax.set_xlim(-5, 5)
+    ax.set_ylim(-5, 5)
+    ax.set_aspect('equal', adjustable='box')
+    st.pyplot(fig)
 
 
+# --- Streamlit UI ---
 st.title("Signal Processing Application")
 
 st.sidebar.header("Configuration")
 uploaded_file_i = st.sidebar.file_uploader("Upload I data (CSV)", type="csv")
 uploaded_file_q = st.sidebar.file_uploader("Upload Q data (CSV)", type="csv")
 
-Fs = st.sidebar.number_input("Sampling Frequency (Fs)", value=2.5e9, format="%.1e")
-pilot_freq = st.sidebar.number_input("Pilot Frequency (for Freq Offset)", value=500e6, format="%.1e")
+Fs = st.sidebar.number_input("Sampling Frequency (Fs)", value=1e9, step=1e6, format="%.2f")
+pilot_freq = st.sidebar.number_input("Pilot Frequency (Hz)", value=200e6, step=1e6, format="%.2f")
 
 analysis_type = st.sidebar.selectbox(
     "Choose Analysis",
     ["FFT", "Combine FFT", "Scatter Plot", "Frequency Offset Compensation"]
 )
 
-if uploaded_file_i is not None and uploaded_file_q is not None:
-    try:
-        data_i = pd.read_csv(uploaded_file_i, header=None, skiprows=4).iloc[:, 4].to_numpy()
-        data_q = pd.read_csv(uploaded_file_q, header=None, skiprows=4).iloc[:, 4].to_numpy()
+process_button = st.sidebar.button("Process")
 
-        st.header(analysis_type)
+# --- Main Logic ---
+if process_button:
+    if uploaded_file_i is not None and uploaded_file_q is not None:
+        try:
+            data_i = pd.read_csv(uploaded_file_i, header=None, skiprows=4).iloc[:, 4].to_numpy()
+            data_q = pd.read_csv(uploaded_file_q, header=None, skiprows=4).iloc[:, 4].to_numpy()
 
-        if analysis_type == "FFT":
-            plot_fft(data_i, data_q, Fs)
-        elif analysis_type == "Combine FFT":
-            plot_combined_fft(data_i, data_q, Fs)
-        elif analysis_type == "Scatter Plot":
-            plot_scatter(data_i, data_q)
-        elif analysis_type == "Frequency Offset Compensation":
-            plot_freq_offset_compensation(data_i, data_q, Fs, pilot_freq)
+            st.header(analysis_type)
 
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
-else:
-    st.info("Please upload both I and Q data files to begin.")
+            if analysis_type == "FFT":
+                plot_fft(data_i, data_q, Fs)
+            elif analysis_type == "Combine FFT":
+                plot_combined_fft(data_i, data_q, Fs)
+            elif analysis_type == "Scatter Plot":
+                plot_scatter(data_i, data_q)
+            elif analysis_type == "Frequency Offset Compensation":
+                plot_freq_offset_compensation(data_i, data_q, Fs, pilot_freq)
+
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
+    else:
+        st.warning("Please upload both I and Q data files to begin.")
