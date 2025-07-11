@@ -195,5 +195,4 @@ if process_button:
         except Exception as e:
             st.error(f"An error occurred: {e}")
     else:
-
-
+        st.warning("Please upload both I and Q data files to begin.")
