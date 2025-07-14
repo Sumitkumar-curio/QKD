@@ -1,3 +1,5 @@
+#before Phase angle
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -32,7 +34,7 @@ def freq_offset_compensation_block_ssb(tx_pilot_signal, demod_pilot_signal, Fs):
     L = len(demod_pilot_signal)
     t = np.arange(L) / Fs
 
-    FO_compensated = demod_pilot_signal * np.exp(1j * 2 * np.pi * Freq_offset * t)
+    FO_compensated = demod_pilot_signal * np.exp(+1j * 2 * np.pi * Freq_offset * t)
     
     return FO_compensated, Freq_offset
 
@@ -113,8 +115,8 @@ def plot_scatter(data_i, data_q):
     ax.set_ylabel('Imaginary Part (Q)')
     ax.set_title('Centered Scatter Plot of I and Q')
     ax.grid(True)
-    ax.set_xlim(-5, 5)
-    ax.set_ylim(-5, 5)
+    # ax.set_xlim(-1, 1)
+    # ax.set_ylim(-1, 1)
     ax.set_aspect('equal', adjustable='box')
     st.pyplot(fig)
 
@@ -129,15 +131,25 @@ def plot_freq_offset_compensation(data_i, data_q, Fs, pilot_freq):
 
     # Step 2: Generate an ideal reference pilot signal
     num_samples = len(demod_pilot_current)
-    num_samples_per_pulse = Fs / pilot_freq
     resolution_time = 1 / Fs
-    t = np.arange(0, resolution_time*num_samples, resolution_time).reshape(-1, 1)
+    # Create a 1D time vector. The previous implementation used a 2D column vector,
+    # which could lead to incorrect results from the hilbert function.
+    t = np.arange(num_samples) / Fs
+
+
+        # Step 2: Generate an ideal reference pilot signal
+    # num_samples = len(demod_pilot_current)
+    # resolution_time = 1 / Fs
+    # t = np.arange(0, resolution_time * num_samples, resolution_time).reshape(-1, 1)
+    # i_signal = np.cos(2 * np.pi * pilot_freq * t)
+    # q_signal = np.imag(hilbert(i_signal)
+    # tx_pilot_signal = (i_signal + np.exp(1j * np.pi / 2) * q_signal).flatten()
 
     # --- Baseband I/Q Signal Generation ---
-    i_signal = np.cos(2 * np.pi * pilot_freq * t)
-    q_signal = np.imag(hilbert(i_signal, axis=0))
-    phase_shift = np.pi / 2
-    tx_pilot_signal = (i_signal + np.exp(1j * phase_shift) * q_signal).flatten()
+    # Directly generate the ideal complex pilot signal. This is more robust
+    # and avoids potential issues with the hilbert transform.
+    # The peak frequency of this signal will be exactly at pilot_freq.
+    tx_pilot_signal = np.exp(1j * 2 * np.pi * pilot_freq * t)
 
     # Step 3: Perform Frequency Offset Compensation
     compensated_signal, offset_estimated = freq_offset_compensation_block_ssb(tx_pilot_signal, demod_pilot_current, Fs)
@@ -151,8 +163,8 @@ def plot_freq_offset_compensation(data_i, data_q, Fs, pilot_freq):
     ax.set_ylabel('Imaginary Part (Q)')
     ax.set_title('After Frequency Offset Compensation')
     ax.grid(True)
-    ax.set_xlim(-5, 5)
-    ax.set_ylim(-5, 5)
+    # ax.set_xlim(-5, 5)
+    # ax.set_ylim(-5, 5)
     ax.set_aspect('equal', adjustable='box')
     st.pyplot(fig)
 
@@ -161,8 +173,8 @@ def plot_freq_offset_compensation(data_i, data_q, Fs, pilot_freq):
 st.title("Signal Processing Application")
 
 st.sidebar.header("Configuration")
-uploaded_file_i = st.sidebar.file_uploader("Upload I data (CSV)", type="csv")
-uploaded_file_q = st.sidebar.file_uploader("Upload Q data (CSV)", type="csv")
+uploaded_file_i = st.sidebar.file_uploader("Upload Q data (CSV)", type="csv")
+uploaded_file_q = st.sidebar.file_uploader("Upload I data (CSV)", type="csv")
 
 Fs = st.sidebar.number_input("Sampling Frequency (Fs)", value=1e9, step=1e6, format="%.2f")
 pilot_freq = st.sidebar.number_input("Pilot Frequency (Hz)", value=200e6, step=1e6, format="%.2f")
@@ -178,8 +190,8 @@ process_button = st.sidebar.button("Process")
 if process_button:
     if uploaded_file_i is not None and uploaded_file_q is not None:
         try:
-            data_i = pd.read_csv(uploaded_file_i, header=None, skiprows=4).iloc[:, 4].to_numpy()
-            data_q = pd.read_csv(uploaded_file_q, header=None, skiprows=4).iloc[:, 4].to_numpy()
+            data_i = pd.read_csv(uploaded_file_i, header=None).iloc[:, 4].to_numpy()
+            data_q = pd.read_csv(uploaded_file_q, header=None).iloc[:, 4].to_numpy()
 
             st.header(analysis_type)
 
